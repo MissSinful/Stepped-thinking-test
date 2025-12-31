@@ -11,7 +11,7 @@ const possiblePaths = [
     "scripts/extensions/third-party/staged_thinking"
 ];
 
-let extensionFolderPath = possiblePaths[0]; // default
+let extensionFolderPath = possiblePaths[0];
 
 const defaultSettings = {
     enabled: true,
@@ -20,8 +20,11 @@ const defaultSettings = {
     delayBetweenStages: 200
 };
 
+// State variables
 let stagesData = null;
 let isRunningStages = false;
+let isOurQuietPrompt = false;
+let pendingThinking = null;
 
 // Load stages from JSON - tries multiple paths
 async function loadStages() {
@@ -47,8 +50,6 @@ async function loadStages() {
     }
     
     console.error("[Staged Thinking] FAILED to load stages.json from any known path!");
-    console.error("[Staged Thinking] Make sure stages.json exists in your extension folder.");
-    console.error("[Staged Thinking] Tried paths:", possiblePaths);
     return null;
 }
 
@@ -100,7 +101,9 @@ ${chatHistory}
 Complete this analysis stage now:`;
 
     try {
-        // Use SillyTavern's built-in quiet prompt generation with object params
+        // Mark that this is our quiet prompt so event handlers skip it
+        isOurQuietPrompt = true;
+        
         const result = await generateQuietPrompt({
             quietPrompt: prompt,
             quietImage: null,
@@ -113,6 +116,8 @@ Complete this analysis stage now:`;
     } catch (error) {
         console.error(`[Staged Thinking] Stage "${stage.name}" failed:`, error);
         return null;
+    } finally {
+        isOurQuietPrompt = false;
     }
 }
 
@@ -145,7 +150,6 @@ async function runStagedGeneration() {
     console.log("[Staged Thinking] Chat history length:", chatHistory.length, "chars");
     
     try {
-        // Run each thinking stage
         for (let i = 0; i < stagesData.stages.length; i++) {
             const stage = stagesData.stages[i];
             
@@ -170,7 +174,6 @@ async function runStagedGeneration() {
                 console.warn(`[Staged Thinking] Stage ${stage.name} returned no result, continuing...`);
             }
             
-            // Delay between stages
             if (settings.delayBetweenStages > 0 && i < stagesData.stages.length - 1) {
                 await new Promise(resolve => setTimeout(resolve, settings.delayBetweenStages));
             }
@@ -191,59 +194,40 @@ async function runStagedGeneration() {
     }
 }
 
-// Store the accumulated thinking for injection
-let pendingThinking = null;
-let lastSeenMessageCount = 0;
-
-// Check if there's a new user message since last generation
-function hasNewUserMessage() {
-    const context = getContext();
-    const chat = context.chat || [];
-    const currentCount = chat.length;
-    
-    // If message count increased and last message is from user
-    if (currentCount > lastSeenMessageCount && chat.length > 0) {
-        const lastMessage = chat[chat.length - 1];
-        if (lastMessage.is_user) {
-            console.log("[Staged Thinking] New user message detected");
-            return true;
-        }
-    }
-    return false;
-}
-
-// Hook into generation - only on actual user messages
+// Hook into generation events
 function setupEventHooks() {
-    // Run staged thinking when generation starts, checking for new user message
     eventSource.on(event_types.GENERATION_STARTED, async () => {
         const settings = extension_settings[extensionName];
         if (!settings.enabled) return;
         
+        // Skip if this is one of our own quiet prompt calls
+        if (isOurQuietPrompt) {
+            console.log("[Staged Thinking] Skipping - this is our own quiet prompt");
+            return;
+        }
+        
+        // Skip if already running stages
+        if (isRunningStages) {
+            console.log("[Staged Thinking] Already running stages, skipping");
+            return;
+        }
+        
         const context = getContext();
         const chat = context.chat || [];
         
-        // Check if last message is from user (meaning this is a response generation)
         if (chat.length === 0) {
             console.log("[Staged Thinking] Empty chat, skipping");
             return;
         }
         
+        // Check if last message is from user
         const lastMessage = chat[chat.length - 1];
         if (!lastMessage.is_user) {
-            console.log("[Staged Thinking] Last message not from user, skipping (likely quiet prompt or regen)");
+            console.log("[Staged Thinking] Last message not from user, skipping");
             return;
         }
         
-        // Check if we already processed this message count
-        if (chat.length <= lastSeenMessageCount) {
-            console.log("[Staged Thinking] Already processed this message count, skipping");
-            return;
-        }
-        
-        // Update counter BEFORE running stages to prevent re-entry
-        lastSeenMessageCount = chat.length;
-        
-        console.log("[Staged Thinking] GENERATION_STARTED - user message confirmed, running stages...");
+        console.log("[Staged Thinking] GENERATION_STARTED - running stages for user message...");
         
         try {
             const result = await runStagedGeneration();
@@ -257,17 +241,16 @@ function setupEventHooks() {
         }
     });
     
-    // Inject the thinking into the prompt
     eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, (data) => {
         const settings = extension_settings[extensionName];
         if (!settings.enabled || !pendingThinking) return;
+        if (isOurQuietPrompt) return;
         
         console.log("[Staged Thinking] CHAT_COMPLETION_PROMPT_READY - injecting thinking...");
         
         try {
             const thinkingInjection = `[COMPLETED STAGED REASONING - YOU MUST FOLLOW THIS ANALYSIS]\n${pendingThinking.thinking}\n\n${pendingThinking.finalPrompt}`;
             
-            // Try to inject into the messages array
             if (data && data.chat) {
                 data.chat.push({
                     role: "system",
@@ -276,17 +259,16 @@ function setupEventHooks() {
                 console.log("[Staged Thinking] Injected into chat array");
             }
             
-            // Clear pending thinking
             pendingThinking = null;
         } catch (error) {
             console.error("[Staged Thinking] Error during injection:", error);
         }
     });
     
-    // Alternative: Modify the prompt string directly
     eventSource.on(event_types.GENERATE_BEFORE_COMBINE_PROMPTS, (data) => {
         const settings = extension_settings[extensionName];
         if (!settings.enabled || !pendingThinking) return;
+        if (isOurQuietPrompt) return;
         
         console.log("[Staged Thinking] GENERATE_BEFORE_COMBINE_PROMPTS - attempting injection...");
         
@@ -300,20 +282,12 @@ function setupEventHooks() {
         }
     });
     
-    // Reset counter when chat changes
-    eventSource.on(event_types.CHAT_CHANGED, () => {
-        lastSeenMessageCount = 0;
-        pendingThinking = null;
-        console.log("[Staged Thinking] Chat changed, reset state");
-    });
-    
-    // Clean up on generation end  
     eventSource.on(event_types.GENERATION_ENDED, () => {
         pendingThinking = null;
     });
 }
 
-// Slash command to manually trigger and test
+// Slash command for manual testing
 function registerSlashCommands() {
     try {
         const { registerSlashCommand } = window.SillyTavern?.getContext?.() || getContext();
@@ -375,19 +349,13 @@ async function loadSettingsUI() {
                 </div>
                 <hr />
                 <div class="staged-thinking-block">
-                    <small>
-                        <b>Stages:</b> Ground Truth → Reality Check → Strategy → Dialogue Check → Execution
-                    </small>
+                    <small><b>Stages:</b> Ground Truth → Reality Check → Strategy → Dialogue Check → Execution</small>
                 </div>
                 <div class="staged-thinking-block">
-                    <small>
-                        <b>Usage:</b> Type <code>/stagedthink</code> to test stages manually without generating.
-                    </small>
+                    <small><b>Usage:</b> Type <code>/stagedthink</code> to test stages manually.</small>
                 </div>
                 <div class="staged-thinking-block">
-                    <small style="color: orange;">
-                        <b>Note:</b> This makes 5 extra API calls per generation. May increase latency and token usage.
-                    </small>
+                    <small style="color: orange;"><b>Note:</b> Makes 5 extra API calls per generation.</small>
                 </div>
             </div>
         </div>
@@ -395,7 +363,6 @@ async function loadSettingsUI() {
     
     $("#extensions_settings").append(settingsHtml);
     
-    // Bind UI elements
     const settings = extension_settings[extensionName];
     
     $("#staged_thinking_enabled")
