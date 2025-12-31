@@ -100,8 +100,15 @@ ${chatHistory}
 Complete this analysis stage now:`;
 
     try {
-        // Use SillyTavern's built-in quiet prompt generation
-        const result = await generateQuietPrompt(prompt, false, false, null, settings.maxTokensPerStage);
+        // Use SillyTavern's built-in quiet prompt generation with object params
+        const result = await generateQuietPrompt({
+            quietPrompt: prompt,
+            quietImage: null,
+            quietToLoud: false,
+            skipWIAN: true,
+            quietName: `[Staged Thinking: ${stage.name}]`,
+            maxTokens: settings.maxTokensPerStage
+        });
         return result;
     } catch (error) {
         console.error(`[Staged Thinking] Stage "${stage.name}" failed:`, error);
