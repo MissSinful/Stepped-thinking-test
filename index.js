@@ -193,13 +193,32 @@ async function runStagedGeneration() {
 
 // Store the accumulated thinking for injection
 let pendingThinking = null;
+let userMessagePending = false;
 
-// Hook into generation start to run stages BEFORE the main generation
+// Hook into generation - only on actual user messages
 function setupEventHooks() {
-    // Run staged thinking when generation starts
+    // Detect when user actually sends a message
+    eventSource.on(event_types.MESSAGE_SENT, (messageId) => {
+        const settings = extension_settings[extensionName];
+        if (!settings.enabled) return;
+        
+        console.log("[Staged Thinking] MESSAGE_SENT detected, flagging for staged generation");
+        userMessagePending = true;
+    });
+    
+    // Run staged thinking when generation starts, BUT only if user sent a message
     eventSource.on(event_types.GENERATION_STARTED, async () => {
         const settings = extension_settings[extensionName];
         if (!settings.enabled) return;
+        
+        // Only run if this is a real user-initiated generation
+        if (!userMessagePending) {
+            console.log("[Staged Thinking] GENERATION_STARTED but no user message pending, skipping");
+            return;
+        }
+        
+        // Clear the flag immediately
+        userMessagePending = false;
         
         console.log("[Staged Thinking] GENERATION_STARTED - running stages...");
         
@@ -257,6 +276,12 @@ function setupEventHooks() {
         } catch (error) {
             console.error("[Staged Thinking] Error in GENERATE_BEFORE_COMBINE_PROMPTS:", error);
         }
+    });
+    
+    // Clean up on generation end
+    eventSource.on(event_types.GENERATION_ENDED, () => {
+        userMessagePending = false;
+        pendingThinking = null;
     });
 }
 
