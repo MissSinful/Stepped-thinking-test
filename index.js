@@ -25,6 +25,8 @@ let stagesData = null;
 let isRunningStages = false;
 let isOurQuietPrompt = false;
 let pendingThinking = null;
+let skipNextGeneration = true;  // Skip first generation after load/chat change
+let lastProcessedMessageId = null;  // Track which message we already processed
 
 // Load stages from JSON - tries multiple paths
 async function loadStages() {
@@ -196,6 +198,14 @@ async function runStagedGeneration() {
 
 // Hook into generation events
 function setupEventHooks() {
+    // Reset state when chat changes (loading a chat, switching characters)
+    eventSource.on(event_types.CHAT_CHANGED, () => {
+        console.log("[Staged Thinking] Chat changed - will skip first generation");
+        skipNextGeneration = true;
+        lastProcessedMessageId = null;
+        pendingThinking = null;
+    });
+    
     eventSource.on(event_types.GENERATION_STARTED, async () => {
         const settings = extension_settings[extensionName];
         if (!settings.enabled) return;
@@ -209,6 +219,13 @@ function setupEventHooks() {
         // Skip if already running stages
         if (isRunningStages) {
             console.log("[Staged Thinking] Already running stages, skipping");
+            return;
+        }
+        
+        // Skip first generation after chat load
+        if (skipNextGeneration) {
+            console.log("[Staged Thinking] Skipping first generation after chat load");
+            skipNextGeneration = false;
             return;
         }
         
@@ -226,6 +243,14 @@ function setupEventHooks() {
             console.log("[Staged Thinking] Last message not from user, skipping");
             return;
         }
+        
+        // Check if we already processed this exact message
+        const messageId = lastMessage.send_date || `${chat.length}-${lastMessage.mes?.substring(0, 20)}`;
+        if (messageId === lastProcessedMessageId) {
+            console.log("[Staged Thinking] Already processed this message, skipping");
+            return;
+        }
+        lastProcessedMessageId = messageId;
         
         console.log("[Staged Thinking] GENERATION_STARTED - running stages for user message...");
         
