@@ -193,34 +193,57 @@ async function runStagedGeneration() {
 
 // Store the accumulated thinking for injection
 let pendingThinking = null;
-let userMessagePending = false;
+let lastSeenMessageCount = 0;
+
+// Check if there's a new user message since last generation
+function hasNewUserMessage() {
+    const context = getContext();
+    const chat = context.chat || [];
+    const currentCount = chat.length;
+    
+    // If message count increased and last message is from user
+    if (currentCount > lastSeenMessageCount && chat.length > 0) {
+        const lastMessage = chat[chat.length - 1];
+        if (lastMessage.is_user) {
+            console.log("[Staged Thinking] New user message detected");
+            return true;
+        }
+    }
+    return false;
+}
 
 // Hook into generation - only on actual user messages
 function setupEventHooks() {
-    // Detect when user actually sends a message
-    eventSource.on(event_types.MESSAGE_SENT, (messageId) => {
-        const settings = extension_settings[extensionName];
-        if (!settings.enabled) return;
-        
-        console.log("[Staged Thinking] MESSAGE_SENT detected, flagging for staged generation");
-        userMessagePending = true;
-    });
-    
-    // Run staged thinking when generation starts, BUT only if user sent a message
+    // Run staged thinking when generation starts, checking for new user message
     eventSource.on(event_types.GENERATION_STARTED, async () => {
         const settings = extension_settings[extensionName];
         if (!settings.enabled) return;
         
-        // Only run if this is a real user-initiated generation
-        if (!userMessagePending) {
-            console.log("[Staged Thinking] GENERATION_STARTED but no user message pending, skipping");
+        const context = getContext();
+        const chat = context.chat || [];
+        
+        // Check if last message is from user (meaning this is a response generation)
+        if (chat.length === 0) {
+            console.log("[Staged Thinking] Empty chat, skipping");
             return;
         }
         
-        // Clear the flag immediately
-        userMessagePending = false;
+        const lastMessage = chat[chat.length - 1];
+        if (!lastMessage.is_user) {
+            console.log("[Staged Thinking] Last message not from user, skipping (likely quiet prompt or regen)");
+            return;
+        }
         
-        console.log("[Staged Thinking] GENERATION_STARTED - running stages...");
+        // Check if we already processed this message count
+        if (chat.length <= lastSeenMessageCount) {
+            console.log("[Staged Thinking] Already processed this message count, skipping");
+            return;
+        }
+        
+        // Update counter BEFORE running stages to prevent re-entry
+        lastSeenMessageCount = chat.length;
+        
+        console.log("[Staged Thinking] GENERATION_STARTED - user message confirmed, running stages...");
         
         try {
             const result = await runStagedGeneration();
@@ -246,7 +269,6 @@ function setupEventHooks() {
             
             // Try to inject into the messages array
             if (data && data.chat) {
-                // Add as a system message near the end
                 data.chat.push({
                     role: "system",
                     content: thinkingInjection
@@ -278,9 +300,15 @@ function setupEventHooks() {
         }
     });
     
-    // Clean up on generation end
+    // Reset counter when chat changes
+    eventSource.on(event_types.CHAT_CHANGED, () => {
+        lastSeenMessageCount = 0;
+        pendingThinking = null;
+        console.log("[Staged Thinking] Chat changed, reset state");
+    });
+    
+    // Clean up on generation end  
     eventSource.on(event_types.GENERATION_ENDED, () => {
-        userMessagePending = false;
         pendingThinking = null;
     });
 }
