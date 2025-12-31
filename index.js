@@ -86,24 +86,31 @@ function getRecentChatHistory(maxMessages = 10) {
     }).join("\n\n");
 }
 
-// Run a single stage using ST's built-in quiet generation
-async function runStage(stage, previousThinking, chatHistory) {
+// Run a single stage using ST's quiet generation with unique identifiers
+async function runStage(stage, stageNumber, chatHistory) {
     const settings = extension_settings[extensionName];
+    const timestamp = Date.now();
+    const uniqueId = `${stageNumber}-${timestamp}`;
     
-    const prompt = `You are performing staged reasoning for roleplay. Complete ONLY the current analysis stage. Be thorough but concise. Do not write the actual narrative yet - only complete the analysis requested.
+    const prompt = `[REQUEST ID: ${uniqueId}]
+[TASK: TEMPLATE FILLING ONLY - NO ROLEPLAY]
 
-${previousThinking ? `Previous thinking stages:\n${previousThinking}` : "(This is the first stage)"}
+You are filling in a planning template. DO NOT write story content.
 
-Current stage task:
+=== YOUR TASK FOR STAGE ${stageNumber} ===
 ${substituteParams(stage.prompt)}
 
-Recent chat context:
-${chatHistory}
+=== REFERENCE INFO (DO NOT ROLEPLAY) ===
+${chatHistory.substring(0, 1000)}
 
-Complete this analysis stage now:`;
+=== OUTPUT INSTRUCTIONS ===
+Fill in the template fields above. Output ONLY the filled template.
+Do NOT write narrative. Do NOT continue the story. Just fill fields.`;
+
+    console.log(`[Staged Thinking] Stage ${stageNumber} prompt length: ${prompt.length}`);
+    console.log(`[Staged Thinking] Stage ${stageNumber} unique ID: ${uniqueId}`);
 
     try {
-        // Mark that this is our quiet prompt so event handlers skip it
         isOurQuietPrompt = true;
         
         const result = await generateQuietPrompt({
@@ -111,9 +118,14 @@ Complete this analysis stage now:`;
             quietImage: null,
             quietToLoud: false,
             skipWIAN: true,
-            quietName: `[Staged Thinking: ${stage.name}]`,
+            quietName: `Stage${stageNumber}`,
             maxTokens: settings.maxTokensPerStage
         });
+        
+        console.log(`[Staged Thinking] Stage ${stageNumber} result type: ${typeof result}`);
+        console.log(`[Staged Thinking] Stage ${stageNumber} result length: ${result?.length || 0}`);
+        console.log(`[Staged Thinking] Stage ${stageNumber} first 100 chars: ${result?.substring(0, 100)}`);
+        
         return result;
     } catch (error) {
         console.error(`[Staged Thinking] Stage "${stage.name}" failed:`, error);
@@ -157,7 +169,7 @@ async function runStagedGeneration() {
             
             console.log(`[Staged Thinking] Running stage ${i + 1}/${stagesData.stages.length}: ${stage.name}`);
             
-            const result = await runStage(stage, accumulatedThinking, chatHistory);
+            const result = await runStage(stage, i + 1, chatHistory);
             
             if (result) {
                 const stageOutput = `<think>\n[${stage.name}]\n${result}\n</think>`;

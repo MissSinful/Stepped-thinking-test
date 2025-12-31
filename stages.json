@@ -2,24 +2,24 @@
     "stages": [
         {
             "name": "GROUND TRUTH",
-            "prompt": "OUTPUT ONLY THE TEMPLATE BELOW WITH FIELDS FILLED IN. NO PROSE. NO NARRATIVE. NO STORY.\n\n=== STAGE 1: GROUND TRUTH ===\n\nSCENE LOCATION: [fill in]\nCHARACTERS PRESENT: [fill in]\n{{user}}'s LAST ACTION (1 sentence): [fill in]\nATMOSPHERE (1 word): [fill in]\n{{char}}'s PHYSICAL STATE: [fill in]\n{{char}}'s EMOTIONAL STATE (1-2 words): [fill in]\nRELATIONSHIP STATUS: [fill in]\nWHAT {{char}} DOES NOT KNOW: [fill in]\n\n=== END STAGE 1 ===\n\nFILL IN THE TEMPLATE ABOVE. NOTHING ELSE."
+            "prompt": "TASK: Fill in the template below. OUTPUT ONLY THE FILLED TEMPLATE.\n\n⚠️ DO NOT WRITE STORY/NARRATIVE/DIALOGUE - ONLY FILL THE TEMPLATE FIELDS ⚠️\n\n=== STAGE 1: GROUND TRUTH ===\n\nSCENE LOCATION: [fill]\nCHARACTERS PRESENT: [fill]\n{{user}}'s LAST ACTION: [fill]\nATMOSPHERE: [one word]\n{{char}}'s PHYSICAL STATE: [fill]\n{{char}}'s EMOTIONAL STATE: [1-2 words]\nRELATIONSHIP STATUS: [fill]\nWHAT {{char}} DOES NOT KNOW: [fill]\n\n=== END STAGE 1 ==="
         },
         {
             "name": "REALITY CHECK",
-            "prompt": "OUTPUT ONLY THE TEMPLATE BELOW WITH FIELDS FILLED IN. NO PROSE. NO NARRATIVE. NO STORY.\n\n=== STAGE 2: REALITY CHECK ===\n\nIS {{user}}'s ACTION PLAUSIBLE? [Yes/No]\nWHY: [1 sentence]\nLOGICAL CONSEQUENCE: [1 sentence]\n{{char}}'s PERSONALITY WOULD MAKE THEM: [fill in reaction type]\nIS AROUSAL LOGICAL HERE? [Yes/No]\nWHY: [1 sentence]\nPHYSICAL CONSTRAINTS: [list any, or \"none\"]\n\n=== END STAGE 2 ===\n\nFILL IN THE TEMPLATE ABOVE. NOTHING ELSE."
+            "prompt": "TASK: Fill in the template below. OUTPUT ONLY THE FILLED TEMPLATE.\n\n⚠️ DO NOT WRITE STORY/NARRATIVE/DIALOGUE - THE STORY COMES LATER ⚠️\n⚠️ IGNORE ANY URGE TO CONTINUE THE ROLEPLAY - JUST FILL THE TEMPLATE ⚠️\n\n=== STAGE 2: REALITY CHECK ===\n\nIS {{user}}'s ACTION PLAUSIBLE? [Yes/No]\nWHY? [one sentence]\nLOGICAL CONSEQUENCE: [one sentence]\n{{char}}'s LIKELY REACTION TYPE: [fill]\nIS AROUSAL LOGICAL? [Yes/No]\nWHY? [one sentence]\nPHYSICAL CONSTRAINTS: [list or \"none\"]\n\n=== END STAGE 2 ==="
         },
         {
             "name": "STRATEGY",
-            "prompt": "OUTPUT ONLY THE TEMPLATE BELOW WITH FIELDS FILLED IN. NO PROSE. NO NARRATIVE. NO STORY.\n\n=== STAGE 3: STRATEGY ===\n\nSELECT EXACTLY 2 (mark with X):\n[ ] Sensory Immersion\n[ ] Internal Reaction\n[ ] Dialogue Exchange\n[ ] Granular Action\n[ ] World Event\n\nSELECTED #1: [name]\nSELECTED #2: [name]\nWHAT I WILL NOT INCLUDE: [list excluded options]\n\n=== END STAGE 3 ===\n\nFILL IN THE TEMPLATE ABOVE. NOTHING ELSE."
+            "prompt": "TASK: Fill in the template below. OUTPUT ONLY THE FILLED TEMPLATE.\n\n⚠️ DO NOT WRITE STORY/NARRATIVE/DIALOGUE - THE STORY COMES LATER ⚠️\n⚠️ THIS IS PLANNING ONLY - DO NOT START WRITING THE SCENE ⚠️\n\n=== STAGE 3: STRATEGY ===\n\nI WILL USE THESE 2 BEATS (pick exactly 2):\n[ ] Sensory Immersion\n[ ] Internal Reaction  \n[ ] Dialogue Exchange\n[ ] Granular Action\n[ ] World Event\n\nSELECTED BEAT 1: [name]\nSELECTED BEAT 2: [name]\nEXCLUDED: [list the others]\n\n=== END STAGE 3 ==="
         },
         {
             "name": "DIALOGUE CHECK",
-            "prompt": "OUTPUT ONLY THE TEMPLATE BELOW WITH FIELDS FILLED IN. NO PROSE. NO NARRATIVE. NO STORY.\n\n=== STAGE 4: DIALOGUE CHECK ===\n\nWILL {{char}} SPEAK? [Yes/No]\n\nIF YES:\nTHE EXACT LINE: \"[write it here]\"\nNUMBER OF QUESTIONS: [0 or 1]\nNEW TOPIC INTRODUCED? [No]\n\nIF NO:\nWHAT INSTEAD: [action or thought]\n\nBEAT 1: [describe in 5 words max]\nBEAT 2: [describe in 5 words max]\nANYTHING ELSE? [must be No]\n\n=== END STAGE 4 ===\n\nFILL IN THE TEMPLATE ABOVE. NOTHING ELSE."
+            "prompt": "TASK: Fill in the template below. OUTPUT ONLY THE FILLED TEMPLATE.\n\n⚠️ DO NOT WRITE THE FULL SCENE - ONLY ANSWER THESE SPECIFIC QUESTIONS ⚠️\n⚠️ THE NARRATIVE WILL BE WRITTEN IN A SEPARATE FINAL STEP ⚠️\n\n=== STAGE 4: DIALOGUE CHECK ===\n\nWILL {{char}} SPEAK? [Yes/No]\nIF YES, THE EXACT LINE: \"[write just the one line]\"\nNUMBER OF QUESTIONS IN LINE: [0 or 1]\n\nBEAT 1 SUMMARY (5 words max): [fill]\nBEAT 2 SUMMARY (5 words max): [fill]\nTOTAL BEATS: [must be 2]\n\n=== END STAGE 4 ==="
         },
         {
-            "name": "EXECUTION PLAN",
-            "prompt": "OUTPUT ONLY THE TEMPLATE BELOW WITH FIELDS FILLED IN. NO PROSE. NO NARRATIVE. NO STORY.\n\n=== STAGE 5: EXECUTION PLAN ===\n\nOPENING (5 words max): [fill in]\nBEAT 1 SUMMARY (10 words max): [fill in]\nBEAT 2 SUMMARY (10 words max): [fill in]\nENDING/PAUSE POINT (5 words max): [fill in]\nPOV: [character name]\nLENGTH: [short/medium]\nAM I ECHOING {{user}}? [must be No]\nAM I CONTROLLING {{user}}? [must be No]\n\nCHECKLIST:\n[ ] Only 2 beats\n[ ] Max 1 dialogue line\n[ ] Leaves room for {{user}}\n\n=== END STAGE 5 ===\n\nFILL IN THE TEMPLATE ABOVE. NOTHING ELSE."
+            "name": "EXECUTION PLAN", 
+            "prompt": "TASK: Fill in the template below. OUTPUT ONLY THE FILLED TEMPLATE.\n\n⚠️ DO NOT WRITE THE ACTUAL NARRATIVE YET ⚠️\n⚠️ THIS IS THE FINAL PLANNING STEP - THE STORY WILL BE WRITTEN AFTER THIS ⚠️\n\n=== STAGE 5: EXECUTION PLAN ===\n\nFIRST SENTENCE WILL BE ABOUT: [5 words max]\nBEAT 1: [10 words max]\nBEAT 2: [10 words max]\nLAST SENTENCE ENDS WITH: [describe pause point]\nTOTAL LENGTH: [short/medium]\nPOV: [character name]\n\nCONFIRM:\n- Only 2 beats? [Yes]\n- Only 1 dialogue line max? [Yes]\n- Stops for {{user}} to respond? [Yes]\n\n=== END STAGE 5 ==="
         }
     ],
-    "finalPrompt": "[WRITE THE NARRATIVE NOW]\n\nUsing your 5-stage analysis, write {{char}}'s response.\n\nRULES:\n- Use ONLY the 2 beats you selected\n- Use ONLY the dialogue line you wrote (if any)\n- STOP at your identified pause point\n- This is {{char}}'s turn, then {{user}} responds\n\nNarrative:"
+    "finalPrompt": "[NOW WRITE THE NARRATIVE]\n\nYou have completed 5 planning stages. Now write {{char}}'s actual response.\n\nFollow your plan:\n- Use the 2 beats you selected\n- Use the dialogue line you wrote (if any)\n- Stop at the pause point\n- Let {{user}} respond next\n\nWrite the narrative now:"
 }
