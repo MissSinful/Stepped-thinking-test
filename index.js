@@ -321,6 +321,8 @@ function setupEventHooks() {
     
     eventSource.on(event_types.GENERATION_ENDED, () => {
         pendingThinking = null;
+        // Reset message tracking so regeneration/swipes can re-run stages
+        lastProcessedMessageId = null;
     });
 }
 
