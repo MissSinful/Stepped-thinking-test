@@ -1,6 +1,5 @@
 import { extension_settings, getContext } from "../../../extensions.js";
-import { saveSettingsDebounced, eventSource, event_types } from "../../../../script.js";
-import { oai_settings } from "../../../openai.js";
+import { saveSettingsDebounced, eventSource, event_types, generateQuietPrompt } from "../../../../script.js";
 
 const extensionName = "staged-thinking";
 const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
@@ -8,11 +7,12 @@ const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 const defaultSettings = {
     enabled: true,
     showStages: true,
-    maxTokensPerStage: 500,
-    delayBetweenStages: 100
+    maxTokensPerStage: 600,
+    delayBetweenStages: 200
 };
 
 let stagesData = null;
+let isRunningStages = false;
 
 // Load stages from JSON
 async function loadStages() {
@@ -59,159 +59,203 @@ function getRecentChatHistory(maxMessages = 10) {
     }).join("\n\n");
 }
 
-// Make a raw API call for a single stage
-async function callStageAPI(systemPrompt, userPrompt) {
-    const context = getContext();
+// Run a single stage using ST's built-in quiet generation
+async function runStage(stage, previousThinking, chatHistory) {
     const settings = extension_settings[extensionName];
     
-    // Build the request based on current API settings
-    const apiUrl = oai_settings.custom_url || "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-    
-    const requestBody = {
-        model: oai_settings.custom_model || "glm-4-plus",
-        messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
-        ],
-        max_tokens: settings.maxTokensPerStage,
-        temperature: 0.7
-    };
-    
-    try {
-        const response = await fetch(apiUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${oai_settings.api_key_custom || oai_settings.api_key}`
-            },
-            body: JSON.stringify(requestBody)
-        });
-        
-        if (!response.ok) {
-            throw new Error(`API call failed: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        return data.choices?.[0]?.message?.content || "";
-    } catch (error) {
-        console.error("[Staged Thinking] API call error:", error);
-        return null;
-    }
-}
+    const prompt = `You are performing staged reasoning for roleplay. Complete ONLY the current analysis stage. Be thorough but concise. Do not write the actual narrative yet - only complete the analysis requested.
 
-// Run a single stage
-async function runStage(stage, previousThinking, chatHistory) {
-    const systemPrompt = `You are performing staged reasoning for roleplay. Complete ONLY the current analysis stage. Be thorough but concise. Do not write the actual narrative yet - only complete the analysis requested.
+${previousThinking ? `Previous thinking stages:\n${previousThinking}` : "(This is the first stage)"}
 
-${previousThinking ? `Previous thinking stages:\n${previousThinking}` : "(This is the first stage)"}`;
-
-    const userPrompt = `${substituteParams(stage.prompt)}
+Current stage task:
+${substituteParams(stage.prompt)}
 
 Recent chat context:
-${chatHistory}`;
-    
-    return await callStageAPI(systemPrompt, userPrompt);
+${chatHistory}
+
+Complete this analysis stage now:`;
+
+    try {
+        // Use SillyTavern's built-in quiet prompt generation
+        const result = await generateQuietPrompt(prompt, false, false, null, settings.maxTokensPerStage);
+        return result;
+    } catch (error) {
+        console.error(`[Staged Thinking] Stage "${stage.name}" failed:`, error);
+        return null;
+    }
 }
 
 // Main staged generation function
 async function runStagedGeneration() {
     const settings = extension_settings[extensionName];
-    if (!settings.enabled || !stagesData) return null;
+    
+    if (!settings.enabled) {
+        console.log("[Staged Thinking] Disabled, skipping");
+        return null;
+    }
+    
+    if (!stagesData) {
+        console.error("[Staged Thinking] No stages data loaded");
+        return null;
+    }
+    
+    if (isRunningStages) {
+        console.log("[Staged Thinking] Already running, skipping");
+        return null;
+    }
+    
+    isRunningStages = true;
     
     const chatHistory = getRecentChatHistory();
     let accumulatedThinking = "";
     const stageResults = [];
     
     console.log("[Staged Thinking] Beginning staged generation...");
+    console.log("[Staged Thinking] Chat history length:", chatHistory.length, "chars");
     
-    // Run each thinking stage
-    for (let i = 0; i < stagesData.stages.length; i++) {
-        const stage = stagesData.stages[i];
-        
-        console.log(`[Staged Thinking] Running stage ${i + 1}/${stagesData.stages.length}: ${stage.name}`);
-        
-        const result = await runStage(stage, accumulatedThinking, chatHistory);
-        
-        if (result) {
-            const stageOutput = `<think>\n[${stage.name}]\n${result}\n</think>`;
-            stageResults.push({
-                name: stage.name,
-                content: result
-            });
-            accumulatedThinking += `\n\n${stageOutput}`;
-            console.log(`[Staged Thinking] Stage ${stage.name} complete`);
-        } else {
-            console.warn(`[Staged Thinking] Stage ${stage.name} returned no result`);
+    try {
+        // Run each thinking stage
+        for (let i = 0; i < stagesData.stages.length; i++) {
+            const stage = stagesData.stages[i];
+            
+            console.log(`[Staged Thinking] Running stage ${i + 1}/${stagesData.stages.length}: ${stage.name}`);
+            
+            const result = await runStage(stage, accumulatedThinking, chatHistory);
+            
+            if (result) {
+                const stageOutput = `<think>\n[${stage.name}]\n${result}\n</think>`;
+                stageResults.push({
+                    name: stage.name,
+                    content: result
+                });
+                accumulatedThinking += `\n\n${stageOutput}`;
+                console.log(`[Staged Thinking] Stage ${stage.name} complete (${result.length} chars)`);
+                
+                if (settings.showStages) {
+                    console.log(`[Staged Thinking] --- ${stage.name} OUTPUT ---`);
+                    console.log(result.substring(0, 500) + (result.length > 500 ? "..." : ""));
+                }
+            } else {
+                console.warn(`[Staged Thinking] Stage ${stage.name} returned no result, continuing...`);
+            }
+            
+            // Delay between stages
+            if (settings.delayBetweenStages > 0 && i < stagesData.stages.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, settings.delayBetweenStages));
+            }
         }
         
-        // Small delay between stages
-        if (settings.delayBetweenStages > 0 && i < stagesData.stages.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, settings.delayBetweenStages));
-        }
+        console.log("[Staged Thinking] All stages complete. Total thinking:", accumulatedThinking.length, "chars");
+        
+        return {
+            thinking: accumulatedThinking,
+            stages: stageResults,
+            finalPrompt: substituteParams(stagesData.finalPrompt)
+        };
+    } catch (error) {
+        console.error("[Staged Thinking] Error during staged generation:", error);
+        return null;
+    } finally {
+        isRunningStages = false;
     }
-    
-    console.log("[Staged Thinking] All stages complete");
-    
-    return {
-        thinking: accumulatedThinking,
-        stages: stageResults,
-        finalPrompt: substituteParams(stagesData.finalPrompt)
-    };
 }
 
-// Hook into chat completion
+// Store the accumulated thinking for injection
+let pendingThinking = null;
+
+// Hook into generation start to run stages BEFORE the main generation
 function setupEventHooks() {
-    // Intercept before the main generation
-    eventSource.on(event_types.CHAT_COMPLETION_SETTINGS_READY, async (data) => {
+    // Run staged thinking when generation starts
+    eventSource.on(event_types.GENERATION_STARTED, async () => {
         const settings = extension_settings[extensionName];
-        if (!settings.enabled) return data;
+        if (!settings.enabled) return;
+        
+        console.log("[Staged Thinking] GENERATION_STARTED - running stages...");
         
         try {
-            console.log("[Staged Thinking] Intercepting generation...");
-            const stagedResult = await runStagedGeneration();
-            
-            if (stagedResult && stagedResult.thinking) {
-                // Inject the completed thinking into the messages
-                const thinkingMessage = {
-                    role: "system",
-                    content: `[COMPLETED STAGED REASONING - FOLLOW THIS ANALYSIS]\n${stagedResult.thinking}\n\n${stagedResult.finalPrompt}`
-                };
-                
-                // Add to messages array
-                if (data.body && data.body.messages) {
-                    // Insert before the last user message
-                    const lastUserIndex = data.body.messages.map(m => m.role).lastIndexOf("user");
-                    if (lastUserIndex > -1) {
-                        data.body.messages.splice(lastUserIndex, 0, thinkingMessage);
-                    } else {
-                        data.body.messages.push(thinkingMessage);
-                    }
-                }
-                
-                console.log("[Staged Thinking] Injected thinking into generation");
+            const result = await runStagedGeneration();
+            if (result && result.thinking) {
+                pendingThinking = result;
+                console.log("[Staged Thinking] Stages complete, thinking ready for injection");
             }
         } catch (error) {
-            console.error("[Staged Thinking] Hook error:", error);
+            console.error("[Staged Thinking] Error in GENERATION_STARTED:", error);
+            pendingThinking = null;
         }
+    });
+    
+    // Inject the thinking into the prompt
+    eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, (data) => {
+        const settings = extension_settings[extensionName];
+        if (!settings.enabled || !pendingThinking) return;
         
-        return data;
+        console.log("[Staged Thinking] CHAT_COMPLETION_PROMPT_READY - injecting thinking...");
+        
+        try {
+            const thinkingInjection = `[COMPLETED STAGED REASONING - YOU MUST FOLLOW THIS ANALYSIS]\n${pendingThinking.thinking}\n\n${pendingThinking.finalPrompt}`;
+            
+            // Try to inject into the messages array
+            if (data && data.chat) {
+                // Add as a system message near the end
+                data.chat.push({
+                    role: "system",
+                    content: thinkingInjection
+                });
+                console.log("[Staged Thinking] Injected into chat array");
+            }
+            
+            // Clear pending thinking
+            pendingThinking = null;
+        } catch (error) {
+            console.error("[Staged Thinking] Error during injection:", error);
+        }
+    });
+    
+    // Alternative: Modify the prompt string directly
+    eventSource.on(event_types.GENERATE_BEFORE_COMBINE_PROMPTS, (data) => {
+        const settings = extension_settings[extensionName];
+        if (!settings.enabled || !pendingThinking) return;
+        
+        console.log("[Staged Thinking] GENERATE_BEFORE_COMBINE_PROMPTS - attempting injection...");
+        
+        try {
+            if (data && typeof data.prompt === 'string') {
+                data.prompt = `[COMPLETED STAGED REASONING]\n${pendingThinking.thinking}\n\n${pendingThinking.finalPrompt}\n\n${data.prompt}`;
+                console.log("[Staged Thinking] Prepended to prompt string");
+            }
+        } catch (error) {
+            console.error("[Staged Thinking] Error in GENERATE_BEFORE_COMBINE_PROMPTS:", error);
+        }
     });
 }
 
-// Alternative: Slash command to manually trigger
+// Slash command to manually trigger and test
 function registerSlashCommands() {
-    const context = getContext();
-    
-    if (context.registerSlashCommand) {
-        context.registerSlashCommand("stagedthink", async () => {
-            const result = await runStagedGeneration();
-            if (result) {
-                console.log("[Staged Thinking] Manual run complete:");
-                console.log(result.thinking);
-                return result.thinking;
-            }
-            return "Staged thinking failed or is disabled.";
-        }, [], "Manually run staged thinking analysis", true, true);
+    try {
+        const { registerSlashCommand } = window.SillyTavern?.getContext?.() || getContext();
+        
+        if (registerSlashCommand) {
+            registerSlashCommand(
+                "stagedthink",
+                async (args, value) => {
+                    console.log("[Staged Thinking] Manual trigger via /stagedthink");
+                    const result = await runStagedGeneration();
+                    if (result) {
+                        console.log("[Staged Thinking] Manual run complete:");
+                        console.log(result.thinking);
+                        return `Staged thinking complete. ${result.stages.length} stages processed. Check console for output.`;
+                    }
+                    return "Staged thinking failed or is disabled.";
+                },
+                [],
+                "Manually run staged thinking analysis without generating a response",
+                true,
+                true
+            );
+            console.log("[Staged Thinking] Slash command /stagedthink registered");
+        }
+    } catch (error) {
+        console.warn("[Staged Thinking] Could not register slash command:", error);
     }
 }
 
@@ -243,17 +287,22 @@ async function loadSettingsUI() {
                 </div>
                 <div class="staged-thinking-block">
                     <label for="staged_thinking_delay">Delay Between Stages (ms)</label>
-                    <input id="staged_thinking_delay" type="number" min="0" max="1000" class="text_pole" />
+                    <input id="staged_thinking_delay" type="number" min="0" max="2000" class="text_pole" />
                 </div>
                 <hr />
                 <div class="staged-thinking-block">
                     <small>
-                        <b>Stages:</b> Ground Truth → Reality Check → Strategy → Dialogue Check → Execution → Final Narrative
+                        <b>Stages:</b> Ground Truth → Reality Check → Strategy → Dialogue Check → Execution
                     </small>
                 </div>
                 <div class="staged-thinking-block">
                     <small>
-                        <b>Note:</b> This extension makes 5 additional API calls per generation to run each thinking stage separately.
+                        <b>Usage:</b> Type <code>/stagedthink</code> to test stages manually without generating.
+                    </small>
+                </div>
+                <div class="staged-thinking-block">
+                    <small style="color: orange;">
+                        <b>Note:</b> This makes 5 extra API calls per generation. May increase latency and token usage.
                     </small>
                 </div>
             </div>
@@ -283,14 +332,14 @@ async function loadSettingsUI() {
     $("#staged_thinking_max_tokens")
         .val(settings.maxTokensPerStage)
         .on("input", function() {
-            settings.maxTokensPerStage = parseInt(this.value) || 500;
+            settings.maxTokensPerStage = parseInt(this.value) || 600;
             saveSettingsDebounced();
         });
     
     $("#staged_thinking_delay")
         .val(settings.delayBetweenStages)
         .on("input", function() {
-            settings.delayBetweenStages = parseInt(this.value) || 100;
+            settings.delayBetweenStages = parseInt(this.value) || 200;
             saveSettingsDebounced();
         });
 }
@@ -306,6 +355,7 @@ jQuery(async () => {
     registerSlashCommands();
     
     console.log("[Staged Thinking] Extension loaded successfully");
+    console.log("[Staged Thinking] Stages data:", stagesData ? `${stagesData.stages.length} stages` : "NOT LOADED");
 });
 
 export { runStagedGeneration };
