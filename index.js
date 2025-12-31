@@ -2,7 +2,16 @@ import { extension_settings, getContext } from "../../../extensions.js";
 import { saveSettingsDebounced, eventSource, event_types, generateQuietPrompt } from "../../../../script.js";
 
 const extensionName = "staged-thinking";
-const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
+
+// Try multiple possible folder names
+const possiblePaths = [
+    "scripts/extensions/third-party/staged-thinking",
+    "scripts/extensions/third-party/Stepped-thinking-test", 
+    "scripts/extensions/third-party/stepped-thinking",
+    "scripts/extensions/third-party/staged_thinking"
+];
+
+let extensionFolderPath = possiblePaths[0]; // default
 
 const defaultSettings = {
     enabled: true,
@@ -14,18 +23,33 @@ const defaultSettings = {
 let stagesData = null;
 let isRunningStages = false;
 
-// Load stages from JSON
+// Load stages from JSON - tries multiple paths
 async function loadStages() {
-    try {
-        const response = await fetch(`${extensionFolderPath}/stages.json`);
-        const data = await response.json();
-        stagesData = data;
-        console.log("[Staged Thinking] Stages loaded:", data.stages.length);
-        return data;
-    } catch (error) {
-        console.error("[Staged Thinking] Failed to load stages:", error);
-        return null;
+    for (const path of possiblePaths) {
+        try {
+            console.log(`[Staged Thinking] Trying to load from: ${path}/stages.json`);
+            const response = await fetch(`${path}/stages.json`);
+            
+            if (!response.ok) {
+                console.log(`[Staged Thinking] Path ${path} returned ${response.status}`);
+                continue;
+            }
+            
+            const data = await response.json();
+            stagesData = data;
+            extensionFolderPath = path;
+            console.log(`[Staged Thinking] SUCCESS! Stages loaded from ${path}:`, data.stages.length, "stages");
+            return data;
+        } catch (error) {
+            console.log(`[Staged Thinking] Path ${path} failed:`, error.message);
+            continue;
+        }
     }
+    
+    console.error("[Staged Thinking] FAILED to load stages.json from any known path!");
+    console.error("[Staged Thinking] Make sure stages.json exists in your extension folder.");
+    console.error("[Staged Thinking] Tried paths:", possiblePaths);
+    return null;
 }
 
 // Initialize settings
